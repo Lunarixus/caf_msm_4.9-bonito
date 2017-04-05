@@ -133,10 +133,6 @@ endif
 
 # Default target when executing plain make
 ifeq ($(CONFIG_BUILD_ARM64_APPENDED_DTB_IMAGE),y)
-KBUILD_IMAGE	:=  $(addsuffix -dtb,$(KBUILD_IMAGE))
-
-# Default target when executing plain make
-ifeq ($(CONFIG_BUILD_ARM64_APPENDED_DTB_IMAGE),y)
 KBUILD_IMAGE	:= Image.$(suffix_y)-dtb
 else
 KBUILD_IMAGE	:= Image.$(suffix_y)
@@ -144,11 +140,27 @@ endif
 
 KBUILD_DTBS	:= dtbs
 
+KBUILD_DTBO_IMG := dtbo.img
+
 ifeq ($(CONFIG_BUILD_ARM64_DT_OVERLAY),y)
 export DTC_FLAGS := -@
 endif
 
+BUILD_DTC_PATH = $(subst $\",,$(CONFIG_BUILD_ARM64_DTC))
+ifneq ($(BUILD_DTC_PATH),)
+	DTC = $(BUILD_DTC_PATH)
+endif
+
+BUILD_DTC_FLAGS = $(subst $\",,$(CONFIG_BUILD_ARM64_DTC_FLAGS))
+ifneq ($(BUILD_DTC_FLAGS),)
+	DTC_FLAGS += $(BUILD_DTC_FLAGS)
+endif
+
+ifeq ($(CONFIG_BUILD_ARM64_APPLY_DTBO),y)
+all:	$(KBUILD_IMAGE) $(KBUILD_DTBS) $(KBUILD_DTBO_IMG) $(KBUILD_APPLY_DTBO)
+else
 all:	$(KBUILD_IMAGE) $(KBUILD_DTBS)
+endif
 
 boot := arch/arm64/boot
 
@@ -175,6 +187,19 @@ dtbs_install:
 Image-dtb Image.gz-dtb Image.lz4-dtb: vmlinux scripts dtbs
 	$(Q)$(MAKE) $(build)=$(boot) $(boot)/$@
 
+ifeq ($(CONFIG_BUILD_ARM64_DT_OVERLAY),y)
+dtbo.img: $(boot)/dts/dtboimg.cfg dtbs
+	$(Q)$(MAKE) $(build)=$(boot) $(boot)/$@
+endif
+
+
+ifeq ($(CONFIG_BUILD_ARM64_DT_OVERLAY),y)
+PHONY += apply_dtbo
+dtboapply := -f $(if $(KBUILD_SRC),$(srctree)/)scripts/Makefile.dtboapply obj
+apply_dtbo: Image.lz4-dtb dtbo.img
+	$(Q)$(MAKE) $(dtboapply)=$(boot) KERNEL_DTB=Image.lz4-dtb DTBO=dtbo.img
+endif
+
 PHONY += vdso_install
 vdso_install:
 	$(Q)$(MAKE) $(build)=arch/arm64/kernel/vdso $@
@@ -185,7 +210,10 @@ archclean:
 	$(Q)$(MAKE) $(clean)=$(boot)/dts
 
 ifeq ($(KBUILD_EXTMOD),)
-# We need to generate vdso-offsets.h before compiling certain files in kernel/.
+
+CLEAN_FILES += $(boot)/Image $(boot)/Image-dtb $(boot)/Image.* $(boot)/dtbo.img
+MRPROPER_FILES += $(boot)/Image $(boot)/Image-dtb $(boot)/Image.* $(boot)/dtbo.img
+
 # In order to do that, we should use the archprepare target, but we can't since
 # asm-offsets.h is included in some files used to generate vdso-offsets.h, and
 # asm-offsets.h is built in prepare0, for which archprepare is a dependency.
